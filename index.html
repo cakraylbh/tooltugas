@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -390,6 +391,38 @@
     </div>
   </section>
 
+
+  <!-- STEP 5: UPLOAD FILE PDF / PPT -->
+  <section class="card">
+    <div class="card-head">
+      <div class="step-num">5</div>
+      <div>
+        <h2>Upload File Referensi (PDF / PPT)</h2>
+        <div class="sub">Dicantumkan di Daftar Referensi &amp; isinya bisa ikut dimasukkan ke Prompt Bantuan AI</div>
+      </div>
+    </div>
+    <input type="file" id="refFileInput" accept=".pdf,.ppt,.pptx,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" multiple onchange="handleRefFiles(event)" style="display:none;">
+    <button class="btn-add" type="button" onclick="document.getElementById('refFileInput').click()">+ Unggah File PDF / PPT</button>
+    <div id="refFileList" style="margin-top:14px;"></div>
+    <div class="hint">Format yang didukung: .pdf, .ppt, .pptx. Centang "Pakai di prompt" agar isi teks file (PDF &amp; PPTX) ikut masuk ke Prompt Bantuan AI setiap soal. File .ppt lama tidak bisa dibaca isinya (hanya nama file) — simpan ulang sebagai .pptx agar terbaca.</div>
+  </section>
+
+  <!-- STEP 6: GAYA LAPORAN WORD -->
+  <section class="card">
+    <div class="card-head">
+      <div class="step-num">6</div>
+      <div>
+        <h2>Gaya Laporan Word</h2>
+        <div class="sub">Pilih dari 20 gaya (10 klasik &amp; 10 gaya seni) — memengaruhi font, warna, judul, bingkai halaman, dan tata letak</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Pilih Gaya</label>
+      <select id="gayaLaporan" onchange="onGayaChange(this)"></select>
+    </div>
+    <div id="gayaPreview" class="format-help"></div>
+  </section>
+
   <!-- FOOTER ACTIONS -->
   <div class="footer-actions">
     <button class="btn-secondary" onclick="saveAsHTML()">💾 Simpan Progress (.html)</button>
@@ -475,6 +508,7 @@ function buildPromptForSoal(card){
   const pertanyaan = card.querySelector('.f-pertanyaan').value.trim();
   let prompt = `Saya adalah mahasiswa Universitas Terbuka bernama ${info.nama}. Tolong bantu saya menjawab ${tipe.toLowerCase()} berikut untuk mata kuliah ${info.matkul}.`;
   if (pertanyaan) prompt += `\n\n${tipe}:\n"${pertanyaan}"`;
+  prompt += buildReferensiPrompt();
   prompt += `\n\nINSTRUKSI FORMAT JAWABAN (wajib diikuti):
 1. Gunakan bahasa Indonesia akademik formal (EYD), analisis mendalam sesuai hukum/teori di Indonesia.
 2. Sertakan dasar hukum/teori ahli, serta referensi dari Buku Materi Pokok (BMP) UT dan sumber lain yang kredibel.
@@ -623,18 +657,220 @@ window.onload = function(){
   if (!restoreFromHolder()){
     addSoal();
   }
+  initGaya();
+  ['includeBMP','linkInput','referensiManual'].forEach(id=>{
+    const el = document.getElementById(id);
+    el.addEventListener(id === 'includeBMP' ? 'change' : 'input', onGlobalChange);
+  });
 };
 
 /* ================= DOCX GENERATION ================= */
 
-const DOCX_COLOR = {
+let DOCX_COLOR = {
   teal: "00796B",
   tealLight: "4DB6AC",
   quoteFill: "E0F2F1",
   dark: "212121",
   gray: "757575"
 };
-const DOCX_FONT = "Calibri";
+let DOCX_FONT = "Calibri";
+let DOCX_STYLE = { h1Caps:false, h1Border:false, align:"both", line:288, h1Color:"212121", deco:"", h1Shade:"", h1TextColor:"", pageBorder:null };
+
+/* ===== 10 Gaya Laporan Word ===== */
+const GAYA_LIST = [
+  { name:"1. Teal UT (Default)", font:"Calibri", teal:"00796B", tealLight:"4DB6AC", quoteFill:"E0F2F1", dark:"212121", gray:"757575", h1Caps:false, h1Border:false, align:"both", line:288, h1Color:"212121" },
+  { name:"2. Klasik Akademik", font:"Times New Roman", teal:"1F2937", tealLight:"9CA3AF", quoteFill:"F3F4F6", dark:"000000", gray:"595959", h1Caps:true, h1Border:true, align:"both", line:360 },
+  { name:"3. Biru Formal", font:"Arial", teal:"1F4E79", tealLight:"5B9BD5", quoteFill:"DEEAF6", dark:"1A1A1A", gray:"666666", h1Caps:false, h1Border:true, align:"both", line:300 },
+  { name:"4. Merah Marun", font:"Cambria", teal:"7B1E3A", tealLight:"C97B90", quoteFill:"F8E8EC", dark:"2B2B2B", gray:"6B6B6B", h1Caps:true, h1Border:false, align:"both", line:300 },
+  { name:"5. Hijau Hutan", font:"Georgia", teal:"2E7D32", tealLight:"81C784", quoteFill:"E8F5E9", dark:"1F2A1F", gray:"6B7A6B", h1Caps:false, h1Border:true, align:"both", line:312 },
+  { name:"6. Minimalis Hitam Putih", font:"Arial", teal:"000000", tealLight:"7F7F7F", quoteFill:"F2F2F2", dark:"111111", gray:"7F7F7F", h1Caps:true, h1Border:false, align:"left", line:276 },
+  { name:"7. Ungu Elegan", font:"Palatino Linotype", teal:"5B2C83", tealLight:"B39DDB", quoteFill:"EFE7F6", dark:"2A2233", gray:"7A6F85", h1Caps:false, h1Border:true, align:"both", line:312 },
+  { name:"8. Oranye Hangat", font:"Trebuchet MS", teal:"D35400", tealLight:"F0A470", quoteFill:"FDEBD0", dark:"2E2A26", gray:"7A6F66", h1Caps:false, h1Border:false, align:"left", line:300 },
+  { name:"9. Navy Eksekutif", font:"Tahoma", teal:"0B2545", tealLight:"5C7FA8", quoteFill:"E3EAF3", dark:"111827", gray:"5F6B7A", h1Caps:true, h1Border:true, align:"both", line:288 },
+  { name:"10. Abu Modern", font:"Century Gothic", teal:"37474F", tealLight:"90A4AE", quoteFill:"ECEFF1", dark:"263238", gray:"78909C", h1Caps:false, h1Border:false, align:"left", line:300 },
+  { name:"11. Art Deco", art:true, font:"Century Gothic", teal:"9C7A1E", tealLight:"D4B15A", quoteFill:"F7F0DC", dark:"1B1B1B", gray:"6F6650", h1Caps:true, h1Border:true, align:"both", line:312, deco:"\u25C6  ", pageBorder:{ style:"double", size:12, color:"B8912F", space:24 } },
+  { name:"12. Batik Klasik", art:true, font:"Georgia", teal:"6D4C2A", tealLight:"B08D62", quoteFill:"F3E9DC", dark:"2B2118", gray:"7A6A58", h1Caps:false, h1Border:true, align:"both", line:312, deco:"\u2756  ", pageBorder:{ style:"thinThickSmallGap", size:18, color:"6D4C2A", space:24 } },
+  { name:"13. Retro 70-an", art:true, font:"Trebuchet MS", teal:"C0562B", tealLight:"E9A23B", quoteFill:"FBEBD3", dark:"3A2A1F", gray:"8A6F5C", h1Caps:true, h1Border:true, align:"left", line:300, deco:"\u25CF  ", pageBorder:{ style:"single", size:24, color:"E9A23B", space:20 } },
+  { name:"14. Bauhaus", art:true, font:"Arial", teal:"1D3557", tealLight:"E63946", quoteFill:"E8EEF6", dark:"111111", gray:"5F6B7A", h1Caps:true, h1Border:false, align:"left", line:288, h1Shade:"E63946", h1TextColor:"FFFFFF", deco:"", pageBorder:{ style:"single", size:36, color:"1D3557", space:18 } },
+  { name:"15. Pop Art", art:true, font:"Verdana", teal:"D81B7A", tealLight:"FFD600", quoteFill:"FFF9C4", dark:"1A1A1A", gray:"6B6B6B", h1Caps:true, h1Border:false, align:"left", line:300, h1Shade:"D81B7A", h1TextColor:"FFFFFF", deco:"\u2605  ", pageBorder:{ style:"single", size:36, color:"FFD600", space:18 } },
+  { name:"16. Zen Japandi", art:true, font:"Cambria", teal:"7A6A58", tealLight:"C9BBA8", quoteFill:"F1EDE6", dark:"2E2A26", gray:"9A8F84", h1Caps:false, h1Border:false, align:"left", line:336, deco:"\u2014  ", pageBorder:{ style:"single", size:4, color:"C9BBA8", space:30 } },
+  { name:"17. Renaisans Emas", art:true, font:"Book Antiqua", teal:"5E1224", tealLight:"C9A227", quoteFill:"FAF3E0", dark:"2A1A1A", gray:"7A6A5A", h1Caps:true, h1Border:true, align:"both", line:324, deco:"\u2726  ", pageBorder:{ style:"thickThinLargeGap", size:24, color:"C9A227", space:24 } },
+  { name:"18. Neon Cyber", art:true, font:"Consolas", teal:"0097A7", tealLight:"00E5FF", quoteFill:"E0F7FA", dark:"0F172A", gray:"64748B", h1Caps:true, h1Border:false, align:"left", line:300, h1Shade:"0F172A", h1TextColor:"00E5FF", deco:"> ", pageBorder:{ style:"single", size:12, color:"00B8D4", space:20 } },
+  { name:"19. Pastel Lembut", art:true, font:"Segoe UI", teal:"D6558A", tealLight:"F8BBD0", quoteFill:"FCE4EC", dark:"3D2C35", gray:"9C8A93", h1Caps:false, h1Border:true, align:"left", line:312, deco:"\u2661  ", pageBorder:{ style:"dashed", size:12, color:"F8BBD0", space:24 } },
+  { name:"20. Impresionis (Monet)", art:true, font:"Palatino Linotype", teal:"3E7CB1", tealLight:"B39DDB", quoteFill:"E8F1F8", dark:"22303C", gray:"7A8794", h1Caps:false, h1Border:true, align:"both", line:324, deco:"\u2740  ", pageBorder:{ style:"triple", size:12, color:"7FB3D5", space:24 } }
+];
+
+function buildPageBorders(){
+  const pb = DOCX_STYLE.pageBorder;
+  if (!pb) return undefined;
+  const { BorderStyle, PageBorderDisplay, PageBorderOffsetFrom } = docx;
+  const map = { single:BorderStyle.SINGLE, double:BorderStyle.DOUBLE, dashed:BorderStyle.DASHED, triple:BorderStyle.TRIPLE,
+                thinThickSmallGap:BorderStyle.THIN_THICK_SMALL_GAP, thickThinLargeGap:BorderStyle.THICK_THIN_LARGE_GAP };
+  const b = { style: map[pb.style] || BorderStyle.SINGLE, size: pb.size, color: pb.color, space: pb.space };
+  return {
+    pageBorders: { display: PageBorderDisplay.ALL_PAGES, offsetFrom: PageBorderOffsetFrom.PAGE },
+    pageBorderTop: b, pageBorderBottom: b, pageBorderLeft: b, pageBorderRight: b
+  };
+}
+
+function applyGaya(idx){
+  const g = GAYA_LIST[idx] || GAYA_LIST[0];
+  DOCX_COLOR = { teal:g.teal, tealLight:g.tealLight, quoteFill:g.quoteFill, dark:g.dark, gray:g.gray };
+  DOCX_FONT = g.font;
+  DOCX_STYLE = { h1Caps:g.h1Caps, h1Border:g.h1Border, align:g.align, line:g.line, h1Color:(g.h1Color || g.teal), deco:(g.deco||""), h1Shade:(g.h1Shade||""), h1TextColor:(g.h1TextColor||""), pageBorder:(g.pageBorder||null) };
+}
+
+function renderGayaPreview(idx){
+  const g = GAYA_LIST[idx] || GAYA_LIST[0];
+  document.getElementById('gayaPreview').innerHTML =
+    '<span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#'+g.teal+';vertical-align:middle;margin-right:4px;"></span>' +
+    '<span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#'+g.tealLight+';vertical-align:middle;margin-right:4px;"></span>' +
+    '<span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#'+g.quoteFill+';border:1px solid #ccc;vertical-align:middle;margin-right:10px;"></span>' +
+    'Font: <code>'+g.font+'</code> · Judul: <code>'+(g.h1Caps?'HURUF KAPITAL':'Normal')+'</code>' +
+    ' · Garis judul: <code>'+(g.h1Border?'Ya':'Tidak')+'</code> · Teks: <code>'+(g.align==='both'?'Rata kiri-kanan':'Rata kiri')+'</code>' +
+    (g.pageBorder ? ' · Bingkai halaman: <code>Ya</code>' : '') +
+    (g.h1Shade ? ' · Judul: <code>Blok warna</code>' : '') +
+    (g.deco ? ' · Ornamen: <code>'+g.deco.trim()+'</code>' : '');
+}
+
+function initGaya(){
+  const sel = document.getElementById('gayaLaporan');
+  if (!sel.options.length){
+    const grpA = document.createElement('optgroup'); grpA.label = 'Gaya Klasik & Formal';
+    const grpB = document.createElement('optgroup'); grpB.label = 'Gaya Seni';
+    GAYA_LIST.forEach((g,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=g.name; (g.art ? grpB : grpA).appendChild(o); });
+    sel.appendChild(grpA); sel.appendChild(grpB);
+  }
+  renderGayaFromSelected();
+}
+function renderGayaFromSelected(){
+  const sel = document.getElementById('gayaLaporan');
+  renderGayaPreview(parseInt(sel.value,10)||0);
+}
+function onGayaChange(sel){
+  Array.from(sel.querySelectorAll('option')).forEach(o=>o.removeAttribute('selected'));
+  sel.options[sel.selectedIndex].setAttribute('selected','selected');
+  renderGayaFromSelected();
+}
+
+/* ===== Upload File Referensi (PDF / PPT) ===== */
+function formatSize(b){
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(2) + ' MB';
+}
+const REF_TEXT_LIMIT = 8000;   // batas karakter isi per file yang masuk prompt
+
+async function extractPdfText(file){
+  if (typeof pdfjsLib === 'undefined') throw new Error('pdf.js tidak termuat');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  let out = '';
+  for (let p = 1; p <= pdf.numPages && out.length < REF_TEXT_LIMIT; p++){
+    const page = await pdf.getPage(p);
+    const tc = await page.getTextContent();
+    out += tc.items.map(it => it.str).join(' ') + '\n';
+  }
+  return out;
+}
+
+async function extractPptxText(file){
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const names = Object.keys(zip.files)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+    .sort((a,b) => parseInt(a.match(/(\d+)\.xml/)[1],10) - parseInt(b.match(/(\d+)\.xml/)[1],10));
+  let out = '';
+  for (let k = 0; k < names.length && out.length < REF_TEXT_LIMIT; k++){
+    const xml = await zip.files[names[k]].async('string');
+    const paras = (xml.match(/<a:p>[\s\S]*?<\/a:p>|<a:p [\s\S]*?<\/a:p>/g) || []).map(p =>
+      (p.match(/<a:t[^>]*>([^<]*)<\/a:t>/g) || []).map(t => t.replace(/<[^>]+>/g,'')).join('')
+    ).filter(t => t.trim());
+    const text = paras.join('\n')
+      .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'");
+    if (text.trim()) out += 'Slide ' + (k+1) + ':\n' + text + '\n';
+  }
+  return out;
+}
+
+function handleRefFiles(event){
+  const list = document.getElementById('refFileList');
+  const files = Array.from(event.target.files || []);
+  files.forEach(f=>{
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    if (!['pdf','ppt','pptx'].includes(ext)){ toast('Hanya file PDF / PPT yang didukung'); return; }
+    const row = document.createElement('div');
+    row.className = 'refFileItem';
+    row.dataset.name = f.name;
+    row.dataset.ext = ext;
+    row.dataset.size = f.size;
+    row.dataset.text = '';
+    row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1.5px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:8px;background:#FCFDFD;font-size:13px;';
+
+    const info = document.createElement('span');
+    info.style.cssText = 'flex:1;min-width:200px;';
+    info.appendChild(document.createTextNode((ext === 'pdf' ? '📕 ' : '📊 ') + f.name + ' (' + ext.toUpperCase() + ', ' + formatSize(f.size) + ')'));
+    const status = document.createElement('div');
+    status.className = 'ref-status hint';
+    status.textContent = 'Membaca isi file...';
+    info.appendChild(status);
+
+    const useLbl = document.createElement('label');
+    useLbl.style.cssText = 'display:flex;align-items:center;gap:6px;margin:0;font-weight:600;font-size:12px;color:#6B46C1;cursor:pointer;';
+    useLbl.innerHTML = '<input type="checkbox" class="ref-use" checked style="width:auto;" onchange="this.toggleAttribute(\'checked\',this.checked);onGlobalChange()"> Pakai di prompt';
+
+    const del = document.createElement('button');
+    del.className = 'btn-remove';
+    del.type = 'button';
+    del.textContent = '🗑 Hapus';
+    del.setAttribute('onclick', "this.closest('.refFileItem').remove();onGlobalChange();");
+
+    row.appendChild(info);
+    row.appendChild(useLbl);
+    row.appendChild(del);
+    list.appendChild(row);
+
+    (async () => {
+      try{
+        let text = '';
+        if (ext === 'pdf') text = await extractPdfText(f);
+        else if (ext === 'pptx') text = await extractPptxText(f);
+        else { status.textContent = 'File .ppt lama: hanya nama file yang dipakai (simpan ulang sebagai .pptx agar isinya terbaca).'; onGlobalChange(); return; }
+        text = text.replace(/[ \t]+/g,' ').replace(/\n{3,}/g,'\n\n').trim();
+        if (text.length > REF_TEXT_LIMIT) text = text.slice(0, REF_TEXT_LIMIT) + ' ...[dipotong]';
+        row.dataset.text = text;
+        row.setAttribute('data-text', text);
+        status.textContent = text ? ('✓ ' + text.length + ' karakter teks terbaca — siap dimasukkan ke prompt') : 'Tidak ada teks yang bisa dibaca (mungkin hasil scan/gambar).';
+      }catch(e){
+        status.textContent = 'Gagal membaca isi file (nama file tetap dicantumkan di referensi).';
+      }
+      onGlobalChange();
+    })();
+  });
+  event.target.value = '';
+  if (files.length) toast('File referensi ditambahkan ✓');
+}
+
+function buildReferensiPrompt(){
+  const parts = [];
+  if (document.getElementById('includeBMP').checked){
+    const info = getInfo();
+    parts.push(`- Buku Materi Pokok (BMP) ${info.matkul}, Universitas Terbuka.`);
+  }
+  const link = document.getElementById('linkInput').value.trim();
+  if (link) parts.push('- Sumber online: ' + link);
+  const manual = document.getElementById('referensiManual').value.trim();
+  if (manual) parts.push('Referensi tambahan:\n' + manual);
+  let n = 0;
+  document.querySelectorAll('#refFileList .refFileItem').forEach(r=>{
+    const use = r.querySelector('.ref-use');
+    if (use && !use.checked) return;
+    n++;
+    const txt = (r.dataset.text || '').trim();
+    parts.push(`\n[File ${n}: ${r.dataset.name}]` + (txt ? `\nIsi file:\n${txt}` : '\n(isi file tidak terbaca, gunakan judulnya sebagai rujukan)'));
+  });
+  if (!parts.length) return '';
+  return `\n\nDAFTAR REFERENSI / SUMBER RUJUKAN (gunakan sebagai dasar utama jawaban dan sebutkan sumbernya):\n` + parts.join('\n');
+}
 
 function parseInlineRuns(text){
   const { TextRun } = docx;
@@ -684,7 +920,9 @@ function blocksToParagraphs(blocks){
     if (b.type === 'h1'){
       out.push(new Paragraph({
         spacing: { before: 320, after: 160 },
-        children: [new TextRun({ text: b.text, bold: true, font: DOCX_FONT, size: 24, color: DOCX_COLOR.dark })]
+        border: DOCX_STYLE.h1Border ? { bottom: { style: BorderStyle.SINGLE, size: 4, color: DOCX_COLOR.tealLight, space: 2 } } : undefined,
+        shading: DOCX_STYLE.h1Shade ? { type: ShadingType.CLEAR, fill: DOCX_STYLE.h1Shade, color: "auto" } : undefined,
+        children: [new TextRun({ text: DOCX_STYLE.deco + (DOCX_STYLE.h1Caps ? b.text.toUpperCase() : b.text), bold: true, font: DOCX_FONT, size: 24, color: (DOCX_STYLE.h1TextColor || DOCX_STYLE.h1Color) })]
       }));
     } else if (b.type === 'h2'){
       out.push(new Paragraph({
@@ -701,15 +939,15 @@ function blocksToParagraphs(blocks){
       }));
     } else if (b.type === 'bullet'){
       out.push(new Paragraph({
-        alignment: AlignmentType.JUSTIFIED,
+        alignment: DOCX_STYLE.align === "left" ? AlignmentType.LEFT : AlignmentType.JUSTIFIED,
         indent: { left: 560, hanging: 280 },
-        spacing: { after: 100, line: 288 },
+        spacing: { after: 100, line: DOCX_STYLE.line },
         children: [new TextRun({ text: "–  ", font: DOCX_FONT, size: 22, color: DOCX_COLOR.dark }), ...parseInlineRuns(b.text)]
       }));
     } else {
       out.push(new Paragraph({
-        alignment: AlignmentType.JUSTIFIED,
-        spacing: { after: 160, line: 288 },
+        alignment: DOCX_STYLE.align === "left" ? AlignmentType.LEFT : AlignmentType.JUSTIFIED,
+        spacing: { after: 160, line: DOCX_STYLE.line },
         children: parseInlineRuns(b.text)
       }));
     }
@@ -722,6 +960,7 @@ async function generateWord(){
           Header, Footer, BorderStyle, ShadingType, PageNumber,
           TabStopType, TabStopPosition } = docx;
 
+  applyGaya(parseInt(document.getElementById('gayaLaporan').value,10) || 0);
   const info = getInfo();
   if (!info.nama || !info.nim){
     toast('Lengkapi Nama & NIM terlebih dahulu');
@@ -815,7 +1054,9 @@ async function generateWord(){
   const includeBMP = document.getElementById('includeBMP').checked;
   const refLink = document.getElementById('linkInput').value.trim();
 
-  if (includeBMP || refLink || refManual){
+  const refFiles = Array.from(document.querySelectorAll('#refFileList .refFileItem')).map(r => ({ name: r.dataset.name, ext: (r.dataset.ext || '').toUpperCase(), size: parseInt(r.dataset.size,10) || 0 }));
+
+  if (includeBMP || refLink || refManual || refFiles.length){
     content.push(new Paragraph({
       pageBreakBefore: true,
       border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: DOCX_COLOR.tealLight, space: 4 } },
@@ -850,6 +1091,19 @@ async function generateWord(){
     if (refManual){
       content.push(...blocksToParagraphs(parseBody(refManual)));
     }
+    if (refFiles.length){
+      content.push(new Paragraph({ spacing: { before: 240, after: 100 }, children: [bold("File Pendukung (PDF / PPT)", 22)] }));
+      refFiles.forEach(f => {
+        content.push(new Paragraph({
+          alignment: DOCX_STYLE.align === "left" ? AlignmentType.LEFT : AlignmentType.JUSTIFIED, indent: { left: 560, hanging: 280 }, spacing: { after: 100, line: DOCX_STYLE.line },
+          children: [
+            new TextRun({ text: "\u2013  ", font: DOCX_FONT, size: 22, color: DOCX_COLOR.dark }),
+            new TextRun({ text: f.name, italics: true, font: DOCX_FONT, size: 22, color: DOCX_COLOR.dark }),
+            new TextRun({ text: ` (${f.ext}, ${formatSize(f.size)}).`, font: DOCX_FONT, size: 22, color: DOCX_COLOR.dark })
+          ]
+        }));
+      });
+    }
   }
 
   const doc = new Document({
@@ -857,7 +1111,8 @@ async function generateWord(){
       properties: {
         page: {
           size: { width: 11906, height: 16838 },
-          margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 }
+          margin: { top: 1440, bottom: 1440, left: 1440, right: 1440 },
+          borders: buildPageBorders()
         }
       },
       headers: { default: header },
